@@ -42,16 +42,16 @@ class Critic:
 
 	def get_target_value(self, actor, state, reward, gamma):
 		target_action = actor.get_target_action(state)
-		state_action = tf.stack([state, target_action])
-		target_value = sess.run(self.target_Q_value, feed_dict={target_input:state_action})
-		return reward 
+		state_action = tf.stack([state, target_action], axis=1)
+		target_value = sess.run(self.target_Q_value, feed_dict={self.target_input:state_action})
+		return reward + gamma * target_value;
 
 	def get_critic_output(self, state_action):
-		Q_value = sess.run(self.critic_Q_value,feed_dict={critic_input:state_action})
+		Q_value = sess.run(self.critic_Q_value,feed_dict={self.critic_input:state_action})
 
 # Actor Network
 class Actor:
-	def __init__(self, input_layer=13, hidden_layer=100, output_layer=1):
+	def __init__(self, input_layer=13, hidden_layer=100, output_layer=4):
 		self.input_layer = input_layer
 		self.hidden_layer = hidden_layer
 		self.output_layer = output_layer
@@ -83,22 +83,31 @@ class Actor:
 		sess.run(self.target_b2.assign(self.actor_b2))
 
 	def select_action(self, state):
-		action = sess.run(self.actor_action,feed_dict={actor_input:state})
+		action = sess.run(self.actor_action,feed_dict={self.actor_input:state})
 		return action
+
+	def get_target_action(self, state):
+		tar_action = sess.run(self.target_action, feed_dict={self.target_input: state});
+
 
 class Replay:
 	max_replay_size = 10000
 	batch_size = 32
 	def __init__(self):
-		self.replay_buffer = [];
+		self.replay_buffer = None;
 
 	def store_transition(self, old_state, action, reward, new_state):
-		if len(self.replay_buffer)>self.max_replay_size:
+		if self.replay_buffer.shape[0]>self.max_replay_size:
 			self.replay_buffer = self.replay_buffer[1000:]
-		self.replay_buffer.append([old_state, action, reward, new_state])
+		tmp = np.concatenate((old_state,action))
+		tmp = np.concatenate((tmp, reward))
+		tmp = np.concatenate((tmp,new_state))
+		self.replay_buffer = tmp if self.replay_buffer is None else np.append(self.replay_buffer, tmp, axis=0)
+		self.replay_buffer.append(tmp)
 
-	def select_random_batch:
-		random_batch = [self.replay_buffer[randint(0,len(self.replay_buffer)-1)] for p in range(batch_size)]
+	def select_random_batch(self):
+		tmp = [randint(0,self.replay_buffer.shape[0]-1) for p in range(self.batch_size)]
+		random_batch = self.replay_buffer[tmp]
 		return random_batch
 
 
@@ -108,24 +117,39 @@ class Replay:
 
 
 critic = Critic(state_dim+action_dim,100,1)
-actor = actor(state_dim,100,4)
+actor = Actor(state_dim,100,4)
 critic.initialize_params()
 actor.initialize_params()
 
 replay = Replay()
 
-num_episodes = 100
-num_time_steps = 1000
+num_episodes = 5
+num_time_steps = 10
 for epoch in range(num_episodes):
 	# reset the environment and recieve initial state
-	state = [1,1,1,1,1,1,1,1,1,1,1,1,1]
+	state = np.array([1,1,1,1,1,1,1,1,1,1,1,1,1])
+	# state=state.reshape(1, 13)
 	for t in range(num_time_steps):
-		action = actor.select_action(state)
+		action = actor.select_action(state.reshape(1,13))
+		action = action[0] #action was a matrix, now it is an np.array(4,)
 		# execute this action and recieve new_state,reward
-		new_state = [2,2,2,2,2,2,2,2,2,2,2,2,2]
-		reward = 3
+		new_state = np.array([2,2,2,2,2,2,2,2,2,2,2,2,2])
+		# new_state = new_state.reshape(1,13)
+		reward = [3]
+		reward = np.array(reward)
 		replay.store_transition(state, action, reward, new_state)
 		state = new_state 
 
 		# select a random batch from replay_buffer
 		batch = replay.select_random_batch()
+		# batch = np.array(batch)
+
+		# Q_values = critic.get_critic_output(np.concatenate((batch[:,0], batch[:,1])))
+
+
+
+
+
+
+
+# exec(open("DDPG.py").read())
