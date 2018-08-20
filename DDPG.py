@@ -11,6 +11,7 @@ sess = tf.Session()
 class Critic:
 	gamma = 0.99;
 	def __init__(self, input_layer=17, hidden_layer=100, output_layer=1):
+		self.learning_rate = 0.01
 		self.input_layer = input_layer
 		self.hidden_layer = hidden_layer
 		self.output_layer = output_layer
@@ -41,17 +42,34 @@ class Critic:
 		sess.run(self.target_W2.assign(self.critic_W2))
 		sess.run(self.target_b2.assign(self.critic_b2))
 
-	def get_target_value(self, actor, batch):
-		target_action_for_new_state = actor.get_target_action(batch[:,18:31]) #passed new state
-		new_state_action = np.concatenate((batch[:,18:31], target_action_for_new_state),axis=1)
-		target_value = sess.run(self.target_Q_value, feed_dict={self.target_input:new_state_action})
-		reward = batch[:,17]
-		reward = reward.reshape(reward.size,1)
-		return reward + self.gamma * target_value
+	# def get_target_value(self, actor, batch):
+	# 	target_action_for_new_state = actor.get_target_action(batch[:,18:31]) #passed new state
+	# 	new_state_action = np.concatenate((batch[:,18:31], target_action_for_new_state),axis=1)
+	# 	target_value = sess.run(self.target_Q_value, feed_dict={self.target_input:new_state_action})
+	# 	reward = batch[:,17]
+	# 	reward = reward.reshape(reward.size,1)
+	# 	return reward + self.gamma * target_value
 
 	def get_critic_output(self, state_action):
 		Q_value = sess.run(self.critic_Q_value,feed_dict={self.critic_input:state_action})
 		return Q_value
+
+	def update_critic_network(self, actor, batch):
+		Q_values = self.critic_Q_value
+		
+		target_action = actor.get_target_action(batch[:,18:31]) # shape = (batch_size, 4)
+		target_input = np.concatenate((batch[:,18:31], target_action), axis=1) #target_input.shape = (batch_size, 17)
+		reward = batch[:,17]
+		reward = reward.reshape(reward.size,1) #shape = (batch_size, 1)
+		target_Q_values = reward + self.gamma * self.target_Q_value
+
+		loss = tf.reduce_mean((Q_values - target_Q_values)**2)
+		
+		optimizer = tf.train.AdamOptimizer(self.learning_rate).minimize(loss)
+
+		sess.run(optimizer, feed_dict={self.critic_input:batch[:,0:17], self.target_input:target_input})
+
+
 # Actor Network
 class Actor:
 	def __init__(self, input_layer=13, hidden_layer=100, output_layer=4):
@@ -106,7 +124,7 @@ class Replay:
 		tmp = np.concatenate((tmp, reward))
 		tmp = np.concatenate((tmp,new_state))
 		tmp = tmp.reshape(1,tmp.shape[0])
-		print(tmp.shape)
+		print("storing tmp of shape: ", tmp.shape)
 		self.replay_buffer = tmp if self.replay_buffer is None else np.append(self.replay_buffer, tmp, axis=0)
 		np.append(self.replay_buffer, tmp)
 		# Finite size replay_buffer
@@ -131,7 +149,7 @@ actor.initialize_params()
 
 replay = Replay()
 
-num_episodes = 5
+num_episodes = 10
 num_time_steps = 10
 for epoch in range(num_episodes):
 	# reset the environment and recieve initial state
@@ -149,13 +167,16 @@ for epoch in range(num_episodes):
 		state = new_state 
 
 		# select a random batch from replay_buffer
-		batch = replay.select_random_batch()
+		if epoch > 5:
+			batch = replay.select_random_batch()
+			critic.update_critic_network(actor, batch)
 		# batch = np.array(batch)
 
-		Q_values = critic.get_critic_output(batch[:,0:17])
-		target_Q_values = critic.get_target_value(actor, batch)
+		# remove next two lines
+		# Q_values = critic.get_critic_output(batch[:,0:17])
+		# target_Q_values = critic.get_target_value(actor, batch)
 
-
+		
 
 
 
