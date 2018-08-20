@@ -9,6 +9,7 @@ sess = tf.Session()
 
 # Critic Network
 class Critic:
+	gamma = 0.99;
 	def __init__(self, input_layer=17, hidden_layer=100, output_layer=1):
 		self.input_layer = input_layer
 		self.hidden_layer = hidden_layer
@@ -40,15 +41,17 @@ class Critic:
 		sess.run(self.target_W2.assign(self.critic_W2))
 		sess.run(self.target_b2.assign(self.critic_b2))
 
-	def get_target_value(self, actor, state, reward, gamma):
-		target_action = actor.get_target_action(state)
-		state_action = tf.stack([state, target_action], axis=1)
-		target_value = sess.run(self.target_Q_value, feed_dict={self.target_input:state_action})
-		return reward + gamma * target_value;
+	def get_target_value(self, actor, batch):
+		target_action_for_new_state = actor.get_target_action(batch[:,18:31]) #passed new state
+		new_state_action = np.concatenate((batch[:,18:31], target_action_for_new_state),axis=1)
+		target_value = sess.run(self.target_Q_value, feed_dict={self.target_input:new_state_action})
+		reward = batch[:,17]
+		reward = reward.reshape(reward.size,1)
+		return reward + self.gamma * target_value
 
 	def get_critic_output(self, state_action):
 		Q_value = sess.run(self.critic_Q_value,feed_dict={self.critic_input:state_action})
-
+		return Q_value
 # Actor Network
 class Actor:
 	def __init__(self, input_layer=13, hidden_layer=100, output_layer=4):
@@ -88,22 +91,27 @@ class Actor:
 
 	def get_target_action(self, state):
 		tar_action = sess.run(self.target_action, feed_dict={self.target_input: state});
+		# print(tar_action)
+		return tar_action
 
 
 class Replay:
 	max_replay_size = 10000
-	batch_size = 32
+	batch_size = 16
 	def __init__(self):
 		self.replay_buffer = None;
 
 	def store_transition(self, old_state, action, reward, new_state):
-		if self.replay_buffer.shape[0]>self.max_replay_size:
-			self.replay_buffer = self.replay_buffer[1000:]
 		tmp = np.concatenate((old_state,action))
 		tmp = np.concatenate((tmp, reward))
 		tmp = np.concatenate((tmp,new_state))
+		tmp = tmp.reshape(1,tmp.shape[0])
+		print(tmp.shape)
 		self.replay_buffer = tmp if self.replay_buffer is None else np.append(self.replay_buffer, tmp, axis=0)
-		self.replay_buffer.append(tmp)
+		np.append(self.replay_buffer, tmp)
+		# Finite size replay_buffer
+		if self.replay_buffer.shape[0]>self.max_replay_size:
+			self.replay_buffer = self.replay_buffer[1000:]
 
 	def select_random_batch(self):
 		tmp = [randint(0,self.replay_buffer.shape[0]-1) for p in range(self.batch_size)]
@@ -144,8 +152,8 @@ for epoch in range(num_episodes):
 		batch = replay.select_random_batch()
 		# batch = np.array(batch)
 
-		# Q_values = critic.get_critic_output(np.concatenate((batch[:,0], batch[:,1])))
-
+		Q_values = critic.get_critic_output(batch[:,0:17])
+		target_Q_values = critic.get_target_value(actor, batch)
 
 
 
