@@ -9,33 +9,38 @@ sess = tf.Session()
 
 # Critic Network
 class Critic:
-	gamma = 0.99;
 	def __init__(self, input_layer=17, hidden_layer=100, output_layer=1):
 		self.learning_rate = 0.01
+		self.gamma = 0.99
 		self.input_layer = input_layer
 		self.hidden_layer = hidden_layer
 		self.output_layer = output_layer
-		self.critic_input = tf.placeholder(tf.float32, shape=[None, input_layer])
-		self.critic_W1 = tf.Variable(tf.truncated_normal([input_layer, hidden_layer]), name="critic_W1")
-		self.critic_b1 = tf.Variable(tf.truncated_normal([hidden_layer]), name='critic_b1')
-		self.critic_W2 = tf.Variable(tf.truncated_normal([hidden_layer, output_layer]), name='critic_W2')
-		self.critic_b2 = tf.Variable(tf.truncated_normal([output_layer]), name='critic_b2')
+		self.critic_input = tf.placeholder(tf.float32, shape=[None, self.input_layer])
+		self.critic_W1 = tf.Variable(tf.truncated_normal([self.input_layer, self.hidden_layer]), name="critic_W1")
+		self.critic_b1 = tf.Variable(tf.truncated_normal([self.hidden_layer]), name='critic_b1')
+		self.critic_W2 = tf.Variable(tf.truncated_normal([self.hidden_layer, output_layer]), name='critic_W2')
+		self.critic_b2 = tf.Variable(tf.truncated_normal([self.output_layer]), name='critic_b2')
 
 		self.critic_h1 = tf.nn.sigmoid(tf.add(tf.matmul(self.critic_input, self.critic_W1), self.critic_b1))
 		self.critic_Q_value = tf.add(tf.matmul(self.critic_h1, self.critic_W2), self.critic_b2)
 
 		# target
-		self.target_input = tf.placeholder(tf.float32, shape=[None, input_layer])
-		self.target_W1 = tf.Variable(tf.truncated_normal([input_layer, hidden_layer]), name="target_critic_W1")
-		self.target_b1 = tf.Variable(tf.truncated_normal([hidden_layer]), name='target_critic_b1')
-		self.target_W2 = tf.Variable(tf.truncated_normal([hidden_layer, output_layer]), name='target_critic_W2')
-		self.target_b2 = tf.Variable(tf.truncated_normal([output_layer]), name='target_critic_b2')
+		self.target_input = tf.placeholder(tf.float32, shape=[None, self.input_layer])
+		self.target_W1 = tf.Variable(tf.truncated_normal([self.input_layer, self.hidden_layer]), name="target_critic_W1")
+		self.target_b1 = tf.Variable(tf.truncated_normal([self.hidden_layer]), name='target_critic_b1')
+		self.target_W2 = tf.Variable(tf.truncated_normal([self.hidden_layer, output_layer]), name='target_critic_W2')
+		self.target_b2 = tf.Variable(tf.truncated_normal([self.output_layer]), name='target_critic_b2')
 
 		self.target_h1 = tf.nn.sigmoid(tf.add(tf.matmul(self.target_input, self.target_W1), self.target_b1))
 		self.target_Q_value = tf.add(tf.matmul(self.target_h1,self.target_W2), self.target_b2)
 
-	def initialize_params(self):
-		sess.run(tf.initialize_all_variables())
+		self.target_reward_input = tf.placeholder(tf.float32, shape=[None, 1])
+		self.target_Q_values = self.target_reward_input + self.gamma * self.target_Q_value
+		self.loss = tf.reduce_mean((self.critic_Q_value - self.target_Q_values)) # change the loss function
+		self.optim = tf.train.AdamOptimizer().minimize(self.loss)
+		
+	def copy_params(self):
+		# sess.run(tf.initialize_all_variables())
 		# Copy params in target network params
 		sess.run(self.target_W1.assign(self.critic_W1))
 		sess.run(self.target_b1.assign(self.critic_b1))
@@ -54,20 +59,15 @@ class Critic:
 		Q_value = sess.run(self.critic_Q_value,feed_dict={self.critic_input:state_action})
 		return Q_value
 
-	def update_critic_network(self, actor, batch):
-		Q_values = self.critic_Q_value
-		
-		target_action = actor.get_target_action(batch[:,18:31]) # shape = (batch_size, 4)
+	def update_critic_network(self, batch, target_action):		
 		target_input = np.concatenate((batch[:,18:31], target_action), axis=1) #target_input.shape = (batch_size, 17)
 		reward = batch[:,17]
 		reward = reward.reshape(reward.size,1) #shape = (batch_size, 1)
-		target_Q_values = reward + self.gamma * self.target_Q_value
 
-		loss = tf.reduce_mean((Q_values - target_Q_values)**2)
-		
-		optimizer = tf.train.AdamOptimizer(self.learning_rate).minimize(loss)
+		print("loss = ", sess.run(self.loss, feed_dict={self.critic_input:batch[:,0:17], self.target_input:target_input, self.target_reward_input:reward}))
 
-		sess.run(optimizer, feed_dict={self.critic_input:batch[:,0:17], self.target_input:target_input})
+
+		sess.run(self.optim, feed_dict={self.critic_input:batch[:,0:17], self.target_input:target_input, self.target_reward_input:reward})
 
 
 # Actor Network
@@ -76,27 +76,27 @@ class Actor:
 		self.input_layer = input_layer
 		self.hidden_layer = hidden_layer
 		self.output_layer = output_layer
-		self.actor_input = tf.placeholder(tf.float32, shape=[None, input_layer])
-		self.actor_W1 = tf.Variable(tf.truncated_normal([input_layer, hidden_layer]), name="actor_W1")
-		self.actor_b1 = tf.Variable(tf.truncated_normal([hidden_layer]), name='actor_b1')
-		self.actor_W2 = tf.Variable(tf.truncated_normal([hidden_layer, output_layer]), name='actor_W2')
-		self.actor_b2 = tf.Variable(tf.truncated_normal([output_layer]), name='actor_b2')
+		self.actor_input = tf.placeholder(tf.float32, shape=[None, self.input_layer])
+		self.actor_W1 = tf.Variable(tf.truncated_normal([self.input_layer, self.hidden_layer]), name="actor_W1")
+		self.actor_b1 = tf.Variable(tf.truncated_normal([self.hidden_layer]), name='actor_b1')
+		self.actor_W2 = tf.Variable(tf.truncated_normal([self.hidden_layer, output_layer]), name='actor_W2')
+		self.actor_b2 = tf.Variable(tf.truncated_normal([self.output_layer]), name='actor_b2')
 
 		self.actor_h1 = tf.nn.sigmoid(tf.add(tf.matmul(self.actor_input, self.actor_W1), self.actor_b1))
 		self.actor_action = tf.add(tf.matmul(self.actor_h1, self.actor_W2), self.actor_b2)
 
 		# target
-		self.target_input = tf.placeholder(tf.float32, shape=[None, input_layer])
-		self.target_W1 = tf.Variable(tf.truncated_normal([input_layer, hidden_layer]), name="target_actor_W1")
-		self.target_b1 = tf.Variable(tf.truncated_normal([hidden_layer]), name='target_actor_b1')
-		self.target_W2 = tf.Variable(tf.truncated_normal([hidden_layer, output_layer]), name='target_actor_W2')
-		self.target_b2 = tf.Variable(tf.truncated_normal([output_layer]), name='target_actor_b2')
+		self.target_input = tf.placeholder(tf.float32, shape=[None, self.input_layer])
+		self.target_W1 = tf.Variable(tf.truncated_normal([self.input_layer, self.hidden_layer]), name="target_actor_W1")
+		self.target_b1 = tf.Variable(tf.truncated_normal([self.hidden_layer]), name='target_actor_b1')
+		self.target_W2 = tf.Variable(tf.truncated_normal([self.hidden_layer, output_layer]), name='target_actor_W2')
+		self.target_b2 = tf.Variable(tf.truncated_normal([self.output_layer]), name='target_actor_b2')
 
 		self.target_h1 = tf.nn.sigmoid(tf.add(tf.matmul(self.target_input, self.target_W1), self.target_b1))
 		self.target_action = tf.add(tf.matmul(self.target_h1,self.target_W2), self.target_b2)
 
-	def initialize_params(self):
-		sess.run(tf.initialize_all_variables())
+	def copy_params(self):
+		# sess.run(tf.initialize_all_variables())
 		# Copy params in target network params
 		sess.run(self.target_W1.assign(self.actor_W1))
 		sess.run(self.target_b1.assign(self.actor_b1))
@@ -108,16 +108,16 @@ class Actor:
 		return action
 
 	def get_target_action(self, state):
-		tar_action = sess.run(self.target_action, feed_dict={self.target_input: state});
-		# print(tar_action)
+		tar_action = sess.run(self.target_action, feed_dict={self.target_input: state})
+		print("target action = \n", tar_action)
 		return tar_action
 
 
 class Replay:
-	max_replay_size = 10000
-	batch_size = 16
 	def __init__(self):
-		self.replay_buffer = None;
+		self.replay_buffer = None
+		self.max_replay_size = 10000
+		self.batch_size = 16
 
 	def store_transition(self, old_state, action, reward, new_state):
 		tmp = np.concatenate((old_state,action))
@@ -126,7 +126,7 @@ class Replay:
 		tmp = tmp.reshape(1,tmp.shape[0])
 		print("storing tmp of shape: ", tmp.shape)
 		self.replay_buffer = tmp if self.replay_buffer is None else np.append(self.replay_buffer, tmp, axis=0)
-		np.append(self.replay_buffer, tmp)
+		# np.append(self.replay_buffer, tmp)
 		# Finite size replay_buffer
 		if self.replay_buffer.shape[0]>self.max_replay_size:
 			self.replay_buffer = self.replay_buffer[1000:]
@@ -144,16 +144,18 @@ class Replay:
 
 critic = Critic(state_dim+action_dim,100,1)
 actor = Actor(state_dim,100,4)
-critic.initialize_params()
-actor.initialize_params()
+sess.run(tf.global_variables_initializer())
+critic.copy_params()
+actor.copy_params()
 
 replay = Replay()
 
 num_episodes = 10
-num_time_steps = 10
+num_time_steps = 5
 for epoch in range(num_episodes):
+	print("episode : ", epoch+1)
 	# reset the environment and recieve initial state
-	state = np.array([1,1,1,1,1,1,1,1,1,1,1,1,1])
+	state = np.array([1,1,1,1,1,1,1,1,1,1,1,1,1]) #1 X 13
 	# state=state.reshape(1, 13)
 	for t in range(num_time_steps):
 		action = actor.select_action(state.reshape(1,13))
@@ -169,7 +171,8 @@ for epoch in range(num_episodes):
 		# select a random batch from replay_buffer
 		if epoch > 5:
 			batch = replay.select_random_batch()
-			critic.update_critic_network(actor, batch)
+			target_action = actor.get_target_action(batch[:,18:31]) # shape = (batch_size, 4)
+			critic.update_critic_network(batch, target_action)
 		# batch = np.array(batch)
 
 		# remove next two lines
