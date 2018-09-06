@@ -71,10 +71,15 @@ class Critic:
 
 		sess.run(self.optim, feed_dict={self.critic_state_input:batch[:,0:13],self.critic_action_input:batch[:,13:17], self.target_input:target_input, self.target_reward_input:reward})
 
+	def update_target_network(self, tau):
+		sess.run(self.target_W1.assign(tau*self.critic_W1 + (1-tau)*self.target_W1))
+		sess.run(self.target_b1.assign(tau*self.critic_b1 + (1-tau)*self.target_b1))
+		sess.run(self.target_W2.assign(tau*self.critic_W2 + (1-tau)*self.target_W2))
+		sess.run(self.target_b2.assign(tau*self.critic_b2 + (1-tau)*self.target_b2))
 
 # Actor Network
 class Actor:
-	def __init__(self, input_layer=13, hidden_layer=100, output_layer=4):
+	def __init__(self, critic, input_layer=13, hidden_layer=100, output_layer=4):
 		self.input_layer = input_layer
 		self.hidden_layer = hidden_layer
 		self.output_layer = output_layer
@@ -97,6 +102,12 @@ class Actor:
 		self.target_h1 = tf.nn.sigmoid(tf.add(tf.matmul(self.target_input, self.target_W1), self.target_b1))
 		self.target_action = tf.add(tf.matmul(self.target_h1,self.target_W2), self.target_b2)
 
+
+		self.actor_critic_input = tf.concat((critic.critic_state_input, self.actor_action),axis=1)
+		self.actor_critic_h1 = tf.nn.sigmoid(tf.add(tf.matmul(self.actor_critic_input, critic.critic_W1), critic.critic_b1))
+		self.actor_critic_Q_value = tf.add(tf.matmul(self.actor_critic_h1, critic.critic_W2), critic.critic_b2)
+		self.J = tf.reduce_mean(self.actor_critic_Q_value)
+		self.actor_optimizer = tf.train.AdamOptimizer().minimize(-1*self.J, var_list=[self.actor_W1, self.actor_b1, self.actor_W2, self.actor_b2])
 	def copy_params(self):
 		# sess.run(tf.initialize_all_variables())
 		# Copy params in target network params
@@ -115,18 +126,22 @@ class Actor:
 		return tar_action
 
 	def update_actor_network(self, critic, batch):
-		actor_critic_input = tf.concat((critic.critic_state_input, self.actor_action),axis=1)
+		# actor_critic_input = tf.concat((critic.critic_state_input, self.actor_action),axis=1)
 
-		critic.actor_critic_h1 = tf.nn.sigmoid(tf.add(tf.matmul(actor_critic_input, critic.critic_W1), critic.critic_b1))
-		critic.actor_critic_Q_value = tf.add(tf.matmul(critic.actor_critic_h1, critic.critic_W2), critic.critic_b2)
+		# critic.actor_critic_h1 = tf.nn.sigmoid(tf.add(tf.matmul(actor_critic_input, critic.critic_W1), critic.critic_b1))
+		# critic.actor_critic_Q_value = tf.add(tf.matmul(critic.actor_critic_h1, critic.critic_W2), critic.critic_b2)
 
-		J = tf.reduce_mean(critic.actor_critic_Q_value)
-		print("J = ", sess.run(J, feed_dict={self.actor_input:batch[:,0:13], critic.critic_state_input:batch[:,0:13]}))
+		# J = tf.reduce_mean(critic.actor_critic_Q_value)
+		print("J = ", sess.run(self.J, feed_dict={self.actor_input:batch[:,0:13], critic.critic_state_input:batch[:,0:13]}))
 
-		actor_optimizer = tf.train.AdamOptimizer().minimize(-1*J, var_list=[self.actor_W1, self.actor_b1, self.actor_W2, self.actor_b2])
-		sess.run(actor_optimizer, feed_dict={self.actor_input:batch[:,0:13], critic.critic_state_input:batch[:,0:13]})
+		# actor_optimizer = tf.train.AdamOptimizer().minimize(-1*J, var_list=[self.actor_W1, self.actor_b1, self.actor_W2, self.actor_b2])
+		sess.run(self.actor_optimizer, feed_dict={self.actor_input:batch[:,0:13], critic.critic_state_input:batch[:,0:13]})
 
-
+	def update_target_network(self, tau):
+		sess.run(self.target_W1.assign(tau*self.actor_W1 + (1-tau)*self.target_W1))
+		sess.run(self.target_b1.assign(tau*self.actor_b1 + (1-tau)*self.target_b1))
+		sess.run(self.target_W2.assign(tau*self.actor_W2 + (1-tau)*self.target_W2))
+		sess.run(self.target_b2.assign(tau*self.actor_b2 + (1-tau)*self.target_b2))
 
 
 
@@ -163,7 +178,7 @@ class Replay:
 
 
 critic = Critic(state_dim+action_dim,100,1)
-actor = Actor(state_dim,100,4)
+actor = Actor(critic,state_dim,100,4)
 sess.run(tf.global_variables_initializer())
 critic.copy_params()
 actor.copy_params()
@@ -190,14 +205,17 @@ for epoch in range(num_episodes):
 
 		# select a random batch from replay_buffer
 		if epoch > 5:
+			print("timestep: ", t)
 			batch = replay.select_random_batch()
 			target_action = actor.get_target_action(batch[:,18:31]) # shape = (batch_size, 4)
 			critic.update_critic_network(batch, target_action)
 
-
-
 			# update actor_network
 			actor.update_actor_network(critic, batch) 
+
+			critic.update_target_network(0.01)
+			actor.update_target_network(0.01)
+	print("\n")
 		# batch = np.array(batch)
 
 		# remove next two lines
