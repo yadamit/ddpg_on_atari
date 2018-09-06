@@ -124,6 +124,7 @@ class Actor:
 		print("J = ", sess.run(J, feed_dict={self.actor_input:batch[:,0:13], critic.critic_state_input:batch[:,0:13]}))
 
 		actor_optimizer = tf.train.AdamOptimizer().minimize(-1*J, var_list=[self.actor_W1, self.actor_b1, self.actor_W2, self.actor_b2])
+		sess.run(actor_optimizer, feed_dict={self.actor_input:batch[:,0:13], critic.critic_state_input:batch[:,0:13]})
 
 
 
