@@ -15,7 +15,9 @@ class Critic:
 		self.input_layer = input_layer
 		self.hidden_layer = hidden_layer
 		self.output_layer = output_layer
-		self.critic_input = tf.placeholder(tf.float32, shape=[None, self.input_layer])
+		self.critic_state_input = tf.placeholder(tf.float32, shape=[None, 13])
+		self.critic_action_input = tf.placeholder(tf.float32, shape=[None, 4])
+		self.critic_input = tf.concat((self.critic_state_input, self.critic_action_input), axis=1)
 		self.critic_W1 = tf.Variable(tf.truncated_normal([self.input_layer, self.hidden_layer]), name="critic_W1")
 		self.critic_b1 = tf.Variable(tf.truncated_normal([self.hidden_layer]), name='critic_b1')
 		self.critic_W2 = tf.Variable(tf.truncated_normal([self.hidden_layer, output_layer]), name='critic_W2')
@@ -36,7 +38,7 @@ class Critic:
 
 		self.target_reward_input = tf.placeholder(tf.float32, shape=[None, 1])
 		self.target_Q_values = self.target_reward_input + self.gamma * self.target_Q_value
-		self.loss = tf.reduce_mean((self.critic_Q_value - self.target_Q_values)) # change the loss function
+		self.loss = tf.reduce_mean((self.critic_Q_value - self.target_Q_values)**2) # change the loss function
 		self.optim = tf.train.AdamOptimizer().minimize(self.loss)
 		
 	def copy_params(self):
@@ -55,19 +57,19 @@ class Critic:
 	# 	reward = reward.reshape(reward.size,1)
 	# 	return reward + self.gamma * target_value
 
-	def get_critic_output(self, state_action):
-		Q_value = sess.run(self.critic_Q_value,feed_dict={self.critic_input:state_action})
-		return Q_value
+	# def get_critic_output(self, state_action):
+	# 	Q_value = sess.run(self.critic_Q_value,feed_dict={self.critic_input:state_action})
+	# 	return Q_value
 
 	def update_critic_network(self, batch, target_action):		
 		target_input = np.concatenate((batch[:,18:31], target_action), axis=1) #target_input.shape = (batch_size, 17)
 		reward = batch[:,17]
 		reward = reward.reshape(reward.size,1) #shape = (batch_size, 1)
 
-		print("loss = ", sess.run(self.loss, feed_dict={self.critic_input:batch[:,0:17], self.target_input:target_input, self.target_reward_input:reward}))
+		print("loss = ", sess.run(self.loss, feed_dict={self.critic_state_input:batch[:,0:13], self.critic_action_input:batch[:,13:17], self.target_input:target_input, self.target_reward_input:reward}))
 
 
-		sess.run(self.optim, feed_dict={self.critic_input:batch[:,0:17], self.target_input:target_input, self.target_reward_input:reward})
+		sess.run(self.optim, feed_dict={self.critic_state_input:batch[:,0:13],self.critic_action_input:batch[:,13:17], self.target_input:target_input, self.target_reward_input:reward})
 
 
 # Actor Network
@@ -109,8 +111,25 @@ class Actor:
 
 	def get_target_action(self, state):
 		tar_action = sess.run(self.target_action, feed_dict={self.target_input: state})
-		print("target action = \n", tar_action)
+		# print("target action = \n", tar_action)
 		return tar_action
+
+	def update_actor_network(self, critic, batch):
+		actor_critic_input = tf.concat((critic.critic_state_input, self.actor_action),axis=1)
+
+		critic.actor_critic_h1 = tf.nn.sigmoid(tf.add(tf.matmul(actor_critic_input, critic.critic_W1), critic.critic_b1))
+		critic.actor_critic_Q_value = tf.add(tf.matmul(critic.actor_critic_h1, critic.critic_W2), critic.critic_b2)
+
+		J = tf.reduce_mean(critic.actor_critic_Q_value)
+		print("J = ", sess.run(J, feed_dict={self.actor_input:batch[:,0:13], critic.critic_state_input:batch[:,0:13]}))
+
+		actor_optimizer = tf.train.AdamOptimizer().minimize(-1*J, var_list=[self.actor_W1, self.actor_b1, self.actor_W2, self.actor_b2])
+
+
+
+
+
+
 
 
 class Replay:
@@ -173,6 +192,11 @@ for epoch in range(num_episodes):
 			batch = replay.select_random_batch()
 			target_action = actor.get_target_action(batch[:,18:31]) # shape = (batch_size, 4)
 			critic.update_critic_network(batch, target_action)
+
+
+
+			# update actor_network
+			actor.update_actor_network(critic, batch) 
 		# batch = np.array(batch)
 
 		# remove next two lines
