@@ -10,7 +10,7 @@ sess = tf.Session()
 # Critic Network
 class Critic:
 	def __init__(self, input_layer=17, hidden_layer=100, output_layer=1):
-		self.learning_rate = 0.01
+		# self.learning_rate = 0.01
 		self.gamma = 0.99
 		self.input_layer = input_layer
 		self.hidden_layer = hidden_layer
